@@ -1,0 +1,207 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESP32Servo.h>
+
+// Wi-Fi bilgileri
+const char* ssid = ""; // İnternetinizin SSİD adı
+const char* password = "";// İnternet şifreniz
+
+// Web sunucusu
+WebServer server(80);
+
+// Donanım pinleri
+const int in1 = 16;
+const int in2 = 17;
+const int buzzer = 26;
+const int servoPin = 27;
+const int trig = 14;
+const int echo = 33;
+
+int servoAcisi = 90;
+Servo myservo;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(in1, OUTPUT);
+  pinMode(in2, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+  pinMode(trig, OUTPUT);
+  pinMode(echo, INPUT);
+
+  myservo.attach(servoPin);
+  myservo.write(servoAcisi);
+
+  // Wi-Fi bağlantısı
+  WiFi.begin(ssid, password);
+  Serial.print("Wi-Fi bağlanıyor");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWi-Fi bağlandı!");
+  Serial.print("IP adresi: ");
+  Serial.println(WiFi.localIP());
+
+  // Web arayüzü
+  server.on("/", []() {
+    server.send(200, "text/html", R"rawliteral(
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body { font-family: sans-serif; margin: 20px; }
+            .container {
+              display: grid;
+              grid-template-columns: 1fr 1fr 1fr;
+              gap: 20px;
+              align-items: center;
+              text-align: center;
+            }
+            .left, .center, .right {
+              border: 1px solid #ccc;
+              padding: 20px;
+              border-radius: 10px;
+            }
+            button {
+              display: block;
+              width: 100px;
+              height: 60px;
+              margin: 10px auto;
+              font-size: 18px;
+              border-radius: 8px;
+              cursor: pointer;
+            }
+            .servo-group {
+              display: flex;
+              justify-content: center;
+              gap: 10px;
+              margin-top: 10px;
+            }
+            .servo-group button {
+              width: 80px;
+              height: 60px;
+              font-size: 18px;
+              margin: 0;
+            }
+          </style>
+        </head>
+        <body>
+          <h2 style="text-align:center;">AUDI BT</h2>
+          <div class="container">
+            <div class="left">
+              <button onclick="komut('w')">Ileri</button>
+              <button onclick="komut('q')">Dur</button>
+              <button onclick="komut('s')">Geri</button>
+            </div>
+            <div class="center">
+              <button onclick="komut('e')">Korna</button>
+            </div>
+            <div class="right">
+              <div class="servo-group">
+                <button onclick="komut('a')">Sol</button>
+                <button onclick="komut('x')">Orta</button>
+                <button onclick="komut('d')">Sag</button>
+              </div>
+            </div>
+          </div>
+          <script>
+            function komut(k) {
+              fetch("/komut?k=" + k);
+            }
+          </script>
+        </body>
+      </html>
+    )rawliteral");
+  });
+
+  // Komut endpoint'i
+  server.on("/komut", []() {
+    if (server.hasArg("k")) {
+      char k = server.arg("k")[0];
+      komutIsle(k);
+    }
+    server.send(200, "text/plain", "OK");
+  });
+
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+
+  static unsigned long lastUltrasonicTime = 0;
+  const unsigned long interval = 150;
+  unsigned long now = millis();
+
+  if (now - lastUltrasonicTime > interval) {
+    lastUltrasonicTime = now;
+
+    // Ultrasonik ölçüm
+    digitalWrite(trig, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trig, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trig, LOW);
+
+    long sure = pulseIn(echo, HIGH, 30000);
+    long mesafe = sure * 0.034 / 2;
+
+    // Buzzer alarm koşulları
+    if (mesafe > 0 && mesafe < 5) {
+      digitalWrite(buzzer, HIGH);
+    } else if (mesafe >= 5 && mesafe < 10) {
+      digitalWrite(buzzer, HIGH);
+      delay(200);
+      digitalWrite(buzzer, LOW);
+    } else if (mesafe >= 10 && mesafe < 20) {
+      digitalWrite(buzzer, HIGH);
+      delay(500);
+      digitalWrite(buzzer, LOW);
+    } else {
+      digitalWrite(buzzer, LOW);
+    }
+  }
+}
+
+// Komut yorumlayıcı
+void komutIsle(char komut) {
+  switch (komut) {
+    case 'w':
+      digitalWrite(in1, HIGH);
+      digitalWrite(in2, LOW);
+      break;
+    case 's':
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, HIGH);
+      break;
+    case 'q':
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, LOW);
+      digitalWrite(buzzer, LOW);
+      break;
+    case 'a':
+      if (servoAcisi != 0) {
+        myservo.write(0);
+        servoAcisi = 0;
+      }
+      break;
+    case 'd':
+      if (servoAcisi != 180) {
+        myservo.write(180);
+        servoAcisi = 180;
+      }
+      break;
+    case 'x':
+      if (servoAcisi != 90) {
+        myservo.write(90);
+        servoAcisi = 90;
+      }
+      break;
+    case 'e':
+      digitalWrite(buzzer, HIGH);
+      delay(500);
+      digitalWrite(buzzer, LOW);
+      break;
+  }
+}
